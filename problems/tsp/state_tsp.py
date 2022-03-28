@@ -42,9 +42,9 @@ class StateTSP(NamedTuple):
     def initialize(input, visited_dtype=torch.uint8, index=-1):
 
         if index != -1:
-            loc = input[:, index, :, :]
+            loc = input['data'][:, index, :, :]
         else:
-            loc = input
+            loc = input['data']
 
         batch_size, n_loc, _ = loc.size()
 

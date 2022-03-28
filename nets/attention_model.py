@@ -63,6 +63,7 @@ class AttentionModel(nn.Module):
         self.temp = 1.0
         self.allow_partial = problem.NAME == 'sdvrp'
         self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp'
+        self.is_tap = problem.NAME == 'tap'
         self.is_orienteering = problem.NAME == 'op'
         self.is_pctsp = problem.NAME == 'pctsp'
         self.is_dynamic_tsp = problem.NAME == 'dynamic_tsp'
@@ -94,6 +95,15 @@ class AttentionModel(nn.Module):
             
             if self.is_vrp and self.allow_partial:  # Need to include the demand if split delivery allowed
                 self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
+
+        elif self.is_tap:
+            step_context_dim = 2 * embedding_dim  # TAP last node
+            node_dim = 3
+
+            # Learned input symbols for first action
+            self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
+            self.W_placeholder.data.uniform_(-1, 1)
+
         else:  # TSP
             assert problem.NAME == "tsp", "Unsupported problem: {}".format(problem.NAME)
             step_context_dim = 2 * embedding_dim  # Embedding of first and last node
@@ -120,6 +130,8 @@ class AttentionModel(nn.Module):
         # Note n_heads * val_dim == embedding_dim so input to project_out is embedding_dim
         self.project_out = nn.Linear(embedding_dim, embedding_dim, bias=False)
 
+        #self.edge_mask = torch.ones((64, 20, 20), dtype=torch.bool)
+
     def set_decode_type(self, decode_type, temp=None):
         self.decode_type = decode_type
         if temp is not None:  # Do not change temperature if not provided
@@ -133,7 +145,7 @@ class AttentionModel(nn.Module):
         :return:
         """
         original_input = input
-        input = self.prepare_input(input)
+        #input = self.prepare_input(input)
         #if len(input.size()) == 4:
         #    input = input[:, 0, :, :]
 
@@ -141,7 +153,8 @@ class AttentionModel(nn.Module):
         if self.checkpoint_encoder and self.training:  # Only checkpoint if we need gradients
             embeddings, _ = checkpoint(self.embedder, self._init_embed(input))
         else:
-            embeddings, _ = self.embedder(self._init_embed(input))
+            data, adj = self._init_embed(input)
+            embeddings, _ = self.embedder(data, adj)
 
         _log_p, pi = self._inner(input, embeddings)
 
@@ -243,9 +256,11 @@ class AttentionModel(nn.Module):
                     ), -1))
                 ),
                 1
-            )
+            ), None
+        elif self.is_tap:
+            return self.init_embed(input['data']), input['adj']
         # TSP
-        return self.init_embed(input)
+        return self.init_embed(input['data']), input['adj']
 
     def _inner(self, input, embeddings):
 
@@ -449,6 +464,12 @@ class AttentionModel(nn.Module):
                 ),
                 -1
             )
+        elif self.is_tap:
+            return embeddings.gather(
+                1,
+                torch.cat((state.last_a, current_node), 1)[:, :, None].expand(batch_size, 2, embeddings.size(-1))
+            ).view(batch_size, 1, -1)
+
         else:  # TSP
         
             if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not

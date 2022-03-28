@@ -10,17 +10,17 @@ def get_options(args=None):
         description="Attention based model for solving the Travelling Salesman Problem with Reinforcement Learning")
 
     # Data
-    parser.add_argument('--problem', default='dynamic_tsp', help="The problem to solve, default 'tsp'")
-    parser.add_argument('--graph_size', type=int, default=20, help="The size of the problem graph")
+    parser.add_argument('--problem', default='tap', help="The problem to solve, default 'tsp'")
+    parser.add_argument('--graph_size', type=int, default=10, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=32, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=12800, help='Number of instances per epoch during training')
-    parser.add_argument('--val_size', type=int, default=100,
+    parser.add_argument('--val_size', type=int, default=200,
                         help='Number of instances used for reporting validation performance')
     parser.add_argument('--val_dataset', type=str, default=None, help='Dataset file to use for validation')
     parser.add_argument('--use_single_time', action='store_true', help='Use a single time step data rather than the entire time')
 
     # Model
-    parser.add_argument('--model', default='st_attention', help="Model, 'attention' (default) or 'pointer'")
+    parser.add_argument('--model', default='attention', help="Model, 'attention' (default) or 'pointer'")
     parser.add_argument('--embedding_dim', type=int, default=128, help='Dimension of input embedding')
     parser.add_argument('--hidden_dim', type=int, default=128, help='Dimension of hidden layers in Enc/Dec')
     parser.add_argument('--n_encode_layers', type=int, default=5,
@@ -62,9 +62,9 @@ def get_options(args=None):
 
     # Misc
     parser.add_argument('--log_step', type=int, default=50, help='Log info every log_step steps')
-    parser.add_argument('--log_dir', default='logs/icde', help='Directory to write TensorBoard information to')
+    parser.add_argument('--log_dir', default='logs/tap', help='Directory to write TensorBoard information to')
     parser.add_argument('--run_name', default='run', help='Name to identify the run')
-    parser.add_argument('--output_dir', default='outputs/icde', help='Directory to write output models to')
+    parser.add_argument('--output_dir', default='outputs/tap', help='Directory to write output models to')
     parser.add_argument('--epoch_start', type=int, default=0,
                         help='Start at epoch # (relevant for learning rate decay)')
     parser.add_argument('--checkpoint_epochs', type=int, default=1,
@@ -73,6 +73,8 @@ def get_options(args=None):
     parser.add_argument('--resume', help='Resume from previous checkpoint file')
     parser.add_argument('--no_tensorboard', action='store_true', help='Disable logging TensorBoard files')
     parser.add_argument('--no_progress_bar', action='store_true', help='Disable progress bar')
+
+
 
     opts = parser.parse_args(args)
     #opts.val_dataset = "./data/dynamic_tsp/dynamic_tsp10_validation_seed4321.pkl"
@@ -88,7 +90,7 @@ def get_options(args=None):
         opts.run_name
     )
 
-    #opts.baseline = 'rollout'
+    opts.baseline = 'rollout'
 
     if opts.bl_warmup_epochs is None:
         opts.bl_warmup_epochs = 1 if opts.baseline == 'rollout' else 0

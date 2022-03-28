@@ -10,8 +10,23 @@ class SkipConnection(nn.Module):
         super(SkipConnection, self).__init__()
         self.module = module
 
-    def forward(self, input):
+    def forward(self, input, mask=None):
         return input + self.module(input)
+
+class MaskedSkipConnection(nn.Module):
+
+    def __init__(self, module):
+        super(MaskedSkipConnection, self).__init__()
+        self.module = module
+
+    def forward(self, input, mask=None):
+        return input + self.module(input, None, mask)
+
+class MaskedSequential(nn.Sequential):
+    def forward(self, x, mask):
+        for module in self._modules.values():
+            x = module(x, mask)
+        return x
 
 class PositionalEncoding(nn.Module):
 
@@ -350,7 +365,7 @@ class Normalization(nn.Module):
             stdv = 1. / math.sqrt(param.size(-1))
             param.data.uniform_(-stdv, stdv)
 
-    def forward(self, input):
+    def forward(self, input, mask=None):
 
         if isinstance(self.normalizer, nn.BatchNorm1d):
             return self.normalizer(input.view(-1, input.size(-1))).view(*input.size())
@@ -361,7 +376,7 @@ class Normalization(nn.Module):
             return input
 
 
-class MultiHeadAttentionLayer(nn.Sequential):
+class MultiHeadAttentionLayer(MaskedSequential):
 
     def __init__(
             self,
@@ -373,7 +388,7 @@ class MultiHeadAttentionLayer(nn.Sequential):
             is_vrp=False
     ):
         super(MultiHeadAttentionLayer, self).__init__(
-            SkipConnection(
+            MaskedSkipConnection(
                 StMultiHeadAttention(
                     n_heads,
                     input_dim=embed_dim,
@@ -446,14 +461,14 @@ class GraphAttentionEncoder(nn.Module):
         self.is_st_attention = st_attention
         self.positional_encode = PositionalEncoding(d_model=embed_dim, dropout=0.0)
 
-        self.layers = nn.Sequential(*(
+        self.layers = MaskedSequential(*(
             MultiHeadAttentionLayer(n_heads, embed_dim, feed_forward_hidden, normalization, st_attention, is_vrp)
             for _ in range(n_layers)
         ))
 
     def forward(self, x, mask=None):
 
-        assert mask is None, "TODO mask not yet supported!"
+        #assert mask is None, "TODO mask not yet supported!"
 
         # Batch multiply to get initial embeddings of nodes
         h = self.init_embed(x.view(-1, x.size(-1))).view(*x.size()[:-1], -1) if self.init_embed is not None else x
@@ -465,7 +480,7 @@ class GraphAttentionEncoder(nn.Module):
         #    h = h.transpose(1, 2).contiguous().view(batch_size * graph_size, time, input_dim)
         #    h = self.positional_encode(h).view(shape_temporal).transpose(1, 2).contiguous()
 
-        h = self.layers(h)
+        h = self.layers(h, mask)
 
         return (
             h,  # (batch_size, graph_size, embed_dim)

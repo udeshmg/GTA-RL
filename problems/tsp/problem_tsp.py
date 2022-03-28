@@ -13,6 +13,8 @@ class TSP(object):
     @staticmethod
     def get_costs(dataset, pi):
         # Check that tours are valid, i.e. contain 0 to n -1
+        dataset = dataset['data']
+
         assert (
             torch.arange(pi.size(1), out=pi.data.new()).view(1, -1).expand_as(pi) ==
             pi.data.sort(1)[0]
@@ -81,9 +83,13 @@ class TSPDataset(Dataset):
         else:
             # Sample points randomly in [0, 1] square
             if is_dynamic:
-                self.data = [self.get_dynamic_data(size, 0.1) for i in range(num_samples)]
+                self.data = [{
+                    self.get_dynamic_data(size, 0.1) for i in range(num_samples)
+                }]
             else:
-                self.data = [torch.FloatTensor(size, 2).uniform_(0, 1) for i in range(num_samples)]
+                self.data = [{'data': torch.FloatTensor(size, 2).uniform_(0, 1),
+                              'adj': torch.ones((size,size), dtype=torch.bool)
+                } for i in range(num_samples)]
 
 
         self.size = len(self.data)
