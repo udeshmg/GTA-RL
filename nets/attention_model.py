@@ -96,10 +96,14 @@ class AttentionModel(nn.Module):
             if self.is_vrp and self.allow_partial:  # Need to include the demand if split delivery allowed
                 self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
 
+
+
         elif self.is_tap:
             step_context_dim = 2 * embedding_dim  # TAP last node
             node_dim = 3
 
+            #Used to check the node usage in paths
+            self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
             # Learned input symbols for first action
             self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
             self.W_placeholder.data.uniform_(-1, 1)
@@ -547,6 +551,17 @@ class AttentionModel(nn.Module):
                 fixed.glimpse_val + self._make_heads(glimpse_val_step),
                 fixed.logit_key + logit_key_step,
             )
+
+        if self.is_tap:
+            glimpse_key_step, glimpse_val_step, logit_key_step = \
+                self.project_node_step(state.node_usage[:, :, :, None].clone()).chunk(3, dim=-1)
+            # Projection of concatenation is equivalent to addition of projections but this is more efficient
+            return (
+                fixed.glimpse_key + self._make_heads(glimpse_key_step),
+                fixed.glimpse_val + self._make_heads(glimpse_val_step),
+                fixed.logit_key + logit_key_step,
+            )
+
 
         # TSP or VRP without split delivery
         return fixed.glimpse_key, fixed.glimpse_val, fixed.logit_key

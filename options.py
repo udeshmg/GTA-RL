@@ -12,7 +12,7 @@ def get_options(args=None):
     # Data
     parser.add_argument('--problem', default='tap', help="The problem to solve, default 'tsp'")
     parser.add_argument('--graph_size', type=int, default=10, help="The size of the problem graph")
-    parser.add_argument('--batch_size', type=int, default=32, help='Number of instances per batch during training')
+    parser.add_argument('--batch_size', type=int, default=64, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=12800, help='Number of instances per epoch during training')
     parser.add_argument('--val_size', type=int, default=200,
                         help='Number of instances used for reporting validation performance')
@@ -23,7 +23,7 @@ def get_options(args=None):
     parser.add_argument('--model', default='attention', help="Model, 'attention' (default) or 'pointer'")
     parser.add_argument('--embedding_dim', type=int, default=128, help='Dimension of input embedding')
     parser.add_argument('--hidden_dim', type=int, default=128, help='Dimension of hidden layers in Enc/Dec')
-    parser.add_argument('--n_encode_layers', type=int, default=5,
+    parser.add_argument('--n_encode_layers', type=int, default=3,
                         help='Number of layers in the encoder/critic network')
     parser.add_argument('--tanh_clipping', type=float, default=10.,
                         help='Clip the parameters to within +- this value using tanh. '
@@ -32,8 +32,8 @@ def get_options(args=None):
     parser.add_argument('--temporal_decoder', action='store_true', default=True, help="Use temporal decoder")
 
     # Training
-    parser.add_argument('--lr_model', type=float, default=1e-4, help="Set the learning rate for the actor network")
-    parser.add_argument('--lr_critic', type=float, default=1e-4, help="Set the learning rate for the critic network")
+    parser.add_argument('--lr_model', type=float, default=1e-5, help="Set the learning rate for the actor network")
+    parser.add_argument('--lr_critic', type=float, default=1e-5, help="Set the learning rate for the critic network")
     parser.add_argument('--lr_decay', type=float, default=1., help='Learning rate decay per epoch')
     parser.add_argument('--eval_only', action='store_true', help='Set this value to only evaluate model')
     parser.add_argument('--n_epochs', type=int, default=50, help='The number of epochs to train')
