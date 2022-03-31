@@ -84,8 +84,9 @@ class TSPDataset(Dataset):
             # Sample points randomly in [0, 1] square
             if is_dynamic:
                 self.data = [{
-                    self.get_dynamic_data(size, 0.1) for i in range(num_samples)
-                }]
+                    'data': self.get_dynamic_data(size, 0.1),
+                    'adj': torch.ones((size,size), dtype=torch.bool)
+                } for i in range(num_samples) ]
             else:
                 self.data = [{'data': torch.FloatTensor(size, 2).uniform_(0, 1),
                               'adj': torch.ones((size,size), dtype=torch.bool)

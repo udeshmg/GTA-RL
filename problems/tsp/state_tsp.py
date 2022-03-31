@@ -71,9 +71,9 @@ class StateTSP(NamedTuple):
 
     def update_state(self, input, index=-1):
         if index != -1:
-            loc = input[:, index, :, :]
+            loc = input['data'][:, index, :, :]
         else:
-            loc = input
+            loc = input['data']
 
         return self._replace(loc=loc,
                              dist=(loc[:, :, None, :] - loc[:, None, :, :]).norm(p=2, dim=-1))

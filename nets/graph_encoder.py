@@ -108,7 +108,9 @@ class StMultiHeadAttention(nn.Module):
         else:
             temporal = q.transpose(1,2).contiguous().view(batch_size*graph_size, time, input_dim)
 
-        spatial_out = self.spatial_attention(spatial).view(shape_spatial)
+        temporal_mask = mask[:,None,:,:].expand(batch_size,graph_size,graph_size,graph_size).contiguous().\
+            view(batch_size*graph_size,graph_size,graph_size)
+        spatial_out = self.spatial_attention(spatial, mask=temporal_mask).view(shape_spatial)
         temporal_out = self.temporal_attention(temporal).view(shape_temporal).transpose(1, 2)
 
         if self.is_vrp:

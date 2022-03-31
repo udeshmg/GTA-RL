@@ -20,6 +20,7 @@ class StateTAP(NamedTuple):
     lengths: torch.Tensor
     cur_coord: torch.Tensor
     i: torch.Tensor  # Keeps track of step
+    time: torch.Tensor # Keeps track of individual paths
 
     edge: torch.Tensor
     demand: torch.Tensor
@@ -42,6 +43,7 @@ class StateTAP(NamedTuple):
             last_a=self.last_a[key],
             visited_=self.visited_[key],
             lengths=self.lengths[key],
+            time=self.time[key],
             cur_coord=self.cur_coord[key] if self.cur_coord is not None else None,
         )
 
@@ -50,11 +52,12 @@ class StateTAP(NamedTuple):
 
         if index != -1:
             loc, mask = input['data'][:, index, :, :], input['adj']
+            demand = input['data'][:, index, -1, 2][:,None]
         else:
             loc, mask = input['data'], input['adj']
+            demand = input['data'][:, -1, 2][:,None]
 
         batch_size, n_loc, _ = loc.size()
-        demand = input['data'][:, -1, 2][:,None]
 
         prev_a = torch.zeros(batch_size, 1, dtype=torch.long, device=loc.device)
 
@@ -78,14 +81,15 @@ class StateTAP(NamedTuple):
             i=torch.zeros(1, dtype=torch.int64, device=loc.device),  # Vector with length num_steps
             edge=mask,
             demand=demand,
-            node_usage=torch.zeros(batch_size, 1, n_loc, dtype=torch.float, device=loc.device)
+            node_usage=torch.zeros(batch_size, 1, n_loc, dtype=torch.float, device=loc.device),
+            time=torch.zeros(batch_size, 1, dtype=torch.int64, device=loc.device)
         )
 
     def update_state(self, input, index=-1):
         if index != -1:
-            loc = input[:, index, :, :]
+            loc = input['data'][:, index, :, :]
         else:
-            loc = input
+            loc = input['data']
 
         return self._replace(loc=loc,
                              dist=(loc[:, :, None, :] - loc[:, None, :, :]).norm(p=2, dim=-1))
@@ -146,7 +150,9 @@ class StateTAP(NamedTuple):
         completed[:,0] = 0
         visited_ = torch.where(demand_ == 0, completed, visited_).diagonal(dim1=0,dim2=1).T[:,None,:]
 
-        return self._replace(prev_a=prev_a, visited_=visited_, node_usage=node_usage,
+        time = torch.where(torch.logical_or(prev_a == n_loc-1, demand_ == 0), 0, self.time+1)
+
+        return self._replace(prev_a=prev_a, visited_=visited_, node_usage=node_usage, time=time,
                              lengths=lengths, cur_coord=cur_coord, i=self.i + 1, demand=demand_)
 
     def all_finished(self):
@@ -159,6 +165,9 @@ class StateTAP(NamedTuple):
     def get_mask(self):
         a = torch.logical_or(self.edge[:,self.prev_a][0], self.visited_ > 0)
         return a
+
+    def get_time_steps(self):
+        return self.time
 
     def get_nn(self, k=None):
         # Insert step dimension

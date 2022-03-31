@@ -10,7 +10,7 @@ def get_options(args=None):
         description="Attention based model for solving the Travelling Salesman Problem with Reinforcement Learning")
 
     # Data
-    parser.add_argument('--problem', default='tap', help="The problem to solve, default 'tsp'")
+    parser.add_argument('--problem', default='dynamic_tap', help="The problem to solve, default 'tsp'")
     parser.add_argument('--graph_size', type=int, default=10, help="The size of the problem graph")
     parser.add_argument('--batch_size', type=int, default=64, help='Number of instances per batch during training')
     parser.add_argument('--epoch_size', type=int, default=12800, help='Number of instances per epoch during training')

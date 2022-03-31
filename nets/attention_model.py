@@ -149,7 +149,7 @@ class AttentionModel(nn.Module):
         :return:
         """
         original_input = input
-        #input = self.prepare_input(input)
+        input = self.prepare_input(input)
         #if len(input.size()) == 4:
         #    input = input[:, 0, :, :]
 
@@ -234,9 +234,11 @@ class AttentionModel(nn.Module):
                     'depot' : input['depot']
                 }
             else: data = input
-        else: # TSP
-            if len(input.size()) == 4:
-                data = input[:, 0, :, :]
+        else: # TSP and TAP
+            if len(input['data'].size()) == 4:
+                data = {'data': input['data'][:, 0, :, :],
+                        'adj': input['adj']
+                        }
             else: data = input
 
         return data

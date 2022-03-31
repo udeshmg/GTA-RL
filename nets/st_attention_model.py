@@ -64,6 +64,7 @@ class StAttentionModel(nn.Module):
         self.temp = 1.0
         self.allow_partial = problem.NAME == 'sdvrp'
         self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp'
+        self.is_tap = problem.NAME == 'tap'
         self.is_orienteering = problem.NAME == 'op'
         self.is_pctsp = problem.NAME == 'pctsp'
 
@@ -95,6 +96,17 @@ class StAttentionModel(nn.Module):
             
             if self.is_vrp and self.allow_partial:  # Need to include the demand if split delivery allowed
                 self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
+
+        elif self.is_tap:
+            step_context_dim = 2 * embedding_dim  # TAP last node
+            node_dim = 3
+
+            #Used to check the node usage in paths
+            self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
+            # Learned input symbols for first action
+            self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
+            self.W_placeholder.data.uniform_(-1, 1)
+
         else:  # TSP
             assert problem.NAME == "tsp", "Unsupported problem: {}".format(problem.NAME)
             step_context_dim = 2 * embedding_dim  # Embedding of first and last node
@@ -141,17 +153,21 @@ class StAttentionModel(nn.Module):
             embeddings, _ = checkpoint(self.embedder, self._init_embed(input))
         else:
             if not self.use_single_time:
-                embeddings, _ = self.embedder(self._init_embed(input))
+                data, adj = self._init_embed(input)
+                embeddings, _ = self.embedder(data, adj)
             else:
-                embeddings = self._init_embed(input)
+                embeddings, _ = self._init_embed(input)
 
         #if len(input.size()) == 4:
         #    embeddings = embeddings[:, 0, :, :]
         #    input = input[:, 0, :, :]
 
-        _log_p, pi = self._inner(input, embeddings)
+        _log_p, pi, indexes = self._inner(input, embeddings)
 
-        cost, mask = self.problem.get_costs(original_input, pi)
+        if self.is_tap:
+            cost, mask = self.problem.get_costs(original_input, pi, indexes)
+        else:
+            cost, mask = self.problem.get_costs(original_input, pi)
         # Log likelihood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
         ll = self._calc_log_likelihood(_log_p, pi, mask)
@@ -233,14 +249,17 @@ class StAttentionModel(nn.Module):
                     ), -1))
                 ),
                 2
-            )
+            ), None
+        elif self.is_tap:
+            return self.init_embed(input['data']), input['adj']
         # TSP
-        return self.init_embed(input)
+        return self.init_embed(input['data']), input['adj']
 
     def _inner(self, input, embeddings):
 
         outputs = []
         sequences = []
+        indexes = []
 
         if self.sum_encoder:
             g = embeddings.mean(dim=1)
@@ -264,9 +283,13 @@ class StAttentionModel(nn.Module):
             elif self.sum_encoder:
                 pass
             else:
-                fixed = self._precompute(embeddings[:, i, :, :])
-                state = state.update_state(input=input, index=i)
-
+                if self.is_tap: # each instance in batch has different time step. So we need gather the current time step embeddings
+                    _, _, size, emb_size = embeddings.size()
+                    fixed = self._precompute(torch.gather(embeddings, 1, state.get_time_steps()[:,:,None,None].
+                                                          expand(-1, -1, size, emb_size))[:, 0, :, :])
+                else:
+                    fixed = self._precompute(embeddings[:, i, :, :])
+                    state = state.update_state(input=input, index=i)
 
             if self.shrink_size is not None:
                 unfinished = torch.nonzero(state.get_finished() == 0)
@@ -300,13 +323,17 @@ class StAttentionModel(nn.Module):
             # Collect output of step
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
+            indexes.append(state.get_time_steps())
 
             i += 1
             #state = self.problem.make_state(loc=input, index=i)
 
 
         # Collected lists, return Tensor
-        return torch.stack(outputs, 1), torch.stack(sequences, 1)
+        if self.is_tap: # TAP sequence is out of order, needs to be provide indexes to compute the cost
+            return  torch.stack(outputs, 1), torch.stack(sequences, 1), torch.stack(indexes, 1).squeeze(-1)
+        else:
+            return torch.stack(outputs, 1), torch.stack(sequences, 1), None
 
     def sample_many(self, input, batch_rep=1, iter_rep=1):
         """
@@ -458,6 +485,13 @@ class StAttentionModel(nn.Module):
                 ),
                 -1
             )
+
+        elif self.is_tap:
+            return embeddings.gather(
+                1,
+                torch.cat((state.last_a, current_node), 1)[:, :, None].expand(batch_size, 2, embeddings.size(-1))
+            ).view(batch_size, 1, -1)
+
         else:  # TSP
         
             if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not
@@ -529,6 +563,16 @@ class StAttentionModel(nn.Module):
             glimpse_key_step, glimpse_val_step, logit_key_step = \
                 self.project_node_step(state.demands_with_depot[:, :, :, None].clone()).chunk(3, dim=-1)
 
+            # Projection of concatenation is equivalent to addition of projections but this is more efficient
+            return (
+                fixed.glimpse_key + self._make_heads(glimpse_key_step),
+                fixed.glimpse_val + self._make_heads(glimpse_val_step),
+                fixed.logit_key + logit_key_step,
+            )
+
+        if self.is_tap:
+            glimpse_key_step, glimpse_val_step, logit_key_step = \
+                self.project_node_step(state.node_usage[:, :, :, None].clone()).chunk(3, dim=-1)
             # Projection of concatenation is equivalent to addition of projections but this is more efficient
             return (
                 fixed.glimpse_key + self._make_heads(glimpse_key_step),
