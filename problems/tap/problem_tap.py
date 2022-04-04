@@ -13,12 +13,14 @@ class TAP(object):
     @staticmethod
     def get_costs(dataset, pi, indexes=None):
 
-
+        data = dataset['data']
         if len(dataset['data'].size()) == 4:
-            data = dataset['data'][:, 0, :, :]
+            batch, _, n_loc, _ = data.size()
+            index_col = 3
         else:
-            data = dataset['data']
-        batch, n_loc, _ = data.size()
+            batch, n_loc, _ = data.size()
+            index_col = 2
+
         # add source to path
         pi_init = torch.cat((torch.zeros_like(pi[:,0])[:,None], pi), 1)
 
@@ -37,24 +39,39 @@ class TAP(object):
             unique_vals.append(unc)
 
         # Create padding
-        padded_unique_vals = torch.zeros(batch, 400, 3, dtype=torch.int64, device=data.get_device())
+        padded_unique_vals = torch.zeros(batch, n_loc*n_loc*2, index_col+1, dtype=torch.int64, device=pi.get_device())
         for index, t in enumerate(unique_vals):
-            index_removed = torch.cat((unique_vals[index][:,:2], unique_vals[index][:,-1].unsqueeze(-1)), dim=1)
+            index_removed = torch.cat((unique_vals[index][:,:index_col], unique_vals[index][:,-1].unsqueeze(-1)), dim=1)
             padded_unique_vals[index, :index_removed.size(0),:] = index_removed
+            padded_unique_vals = padded_unique_vals.clip(0, n_loc - 1)
 
 
-        x = data.gather(1, padded_unique_vals[:,:,0].unsqueeze(-1).
-                        expand(*padded_unique_vals.size()[0:2],2))
-        y = data.gather(1, padded_unique_vals[:,:,1].unsqueeze(-1).
-                        expand(*padded_unique_vals.size()[0:2],2))
+        if len(data.size()) == 4:
+            expanded_vals = padded_unique_vals[:, :, 2][:, :, None, None].expand(*padded_unique_vals.size()[0:2],
+                                                                                 *data.size()[-2:])
+            time_aligned_data = data.gather(1, expanded_vals)
+
+            x = time_aligned_data.gather(2, padded_unique_vals[:, :, 0].unsqueeze(-1).unsqueeze(-1).
+                        expand(*padded_unique_vals.size()[0:2],  *data.size()[-2:]))[:, :, 0, 0:2]
+            y = time_aligned_data.gather(2, padded_unique_vals[:, :, 1].unsqueeze(-1).unsqueeze(-1).
+                        expand(*padded_unique_vals.size()[0:2],  *data.size()[-2:]))[:, :, 0, 0:2]
+
+        else:
+            x = data.gather(1, padded_unique_vals[:, :, 0].unsqueeze(-1).
+                        expand(*padded_unique_vals.size()[0:2], 2))
+            y = data.gather(1, padded_unique_vals[:, :, 1].unsqueeze(-1).
+                        expand(*padded_unique_vals.size()[0:2], 2))
 
         dist = (x-y).norm(p=2, dim=2)
-        dist = torch.where(torch.logical_and(padded_unique_vals[:, :, 0] == n_loc-1,
+        path_cost = torch.where(torch.logical_and(padded_unique_vals[:, :, 0] == n_loc-1,
                                              padded_unique_vals[:, :, 1] == 0), dist - dist, dist)
 
-        multiplyer = torch.where(padded_unique_vals[:, :, 0] - padded_unique_vals[:, :, 1] == 0, 0, padded_unique_vals[:,:,2])
+        multiplyer = torch.where(padded_unique_vals[:, :, 0] - padded_unique_vals[:, :, 1] == 0, 0,
+                                 padded_unique_vals[:, :, index_col])
+        multiplyer = torch.where(torch.logical_and(padded_unique_vals[:, :, 0] == n_loc-1,
+                                                   padded_unique_vals[:, :, 1] == 0), 0, multiplyer)
 
-        cost = ((dist + 0.2*multiplyer)*multiplyer).sum(1) #link performance function
+        cost = ((path_cost + 0.2*multiplyer)*multiplyer).sum(1) #link performance function
 
         return cost, None
 
@@ -92,7 +109,12 @@ class TAP(object):
 
             return beam_search(dynamic, state, beam_size, propose_expansions)
 
-
+def make_instance(args):
+    data, adj, *args = args
+    return {
+        'data': torch.tensor(data, dtype=torch.float),
+        'adj': torch.tensor(adj, dtype=torch.bool)
+    }
 
 class TAPDataset(Dataset):
     
@@ -107,7 +129,7 @@ class TAPDataset(Dataset):
 
             with open(filename, 'rb') as f:
                 data = pickle.load(f)
-                self.data = [torch.FloatTensor(row) for row in (data[offset:offset+num_samples])]
+                self.data = [make_instance(args) for args in data[offset:offset+num_samples]]
         else:
             # Sample points randomly in [0, 1] square
             if is_dynamic:
@@ -135,7 +157,7 @@ class TAPDataset(Dataset):
 
     def create_adj(self, size):
         adj = torch.zeros(size, size, dtype=torch.bool)
-        coords = torch.randint(1, size-1, (size-1, size-5))
+        coords = torch.randint(1, size-1, (size, size-5))
         adj = adj.scatter(1, coords, True)
         adj[size-1, 0] = False # there should always be a connection from destination to source for resetting the path
         return adj

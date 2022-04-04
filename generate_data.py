@@ -1,7 +1,9 @@
 import argparse
 import os
 import numpy as np
+import torch
 from utils.data_utils import check_extension, save_dataset
+import random
 
 
 def generate_tsp_data(dataset_size, tsp_size):
@@ -17,6 +19,73 @@ def generate_dynamic_tsp_data(dataset_size, num_nodes, threshold=0.1):
     np_stack = np.stack(stack, axis=1)
 
     return np_stack
+
+
+def generate_tap_data(dataset_size, num_nodes, node_degree=5):
+    return list(zip(
+        generate_tap_location_data(dataset_size, num_nodes).tolist(),
+        generate_tap_adj_data(dataset_size, num_nodes, node_degree).tolist()
+    ))
+
+def generate_tap_adj_data(dataset_size, num_nodes, node_degree=5):
+    stack = []
+
+    for i in range(dataset_size):
+        adj = torch.zeros(num_nodes, num_nodes, dtype=torch.bool)
+        coords = torch.randint(1, num_nodes-1, (num_nodes, num_nodes-node_degree))
+        adj = adj.scatter(1, coords, True)
+        adj[num_nodes-1, 0] = False # there should always be a connection from destination to source for resetting the path
+        stack.append(adj.numpy())
+
+    return np.stack(stack, axis=0)
+
+def generate_dynamic_tap_data(dataset_size, num_nodes, threshold=0.1, node_degree=5):
+    return list(zip(
+        generate_tap_dynamic_location_data(dataset_size, num_nodes, threshold=threshold).tolist(),
+        generate_tap_adj_data(dataset_size, num_nodes, node_degree).tolist()
+    ))
+
+
+def generate_tap_location_data(dataset_size, num_nodes):
+    stack = []
+
+    for i in range(dataset_size):
+        instance = torch.FloatTensor(num_nodes, 2).uniform_(0, 1)
+        demand = random.randint(2, 8)
+        demand_t = torch.zeros(num_nodes, 1)
+        demand_t[0, 0] = -demand
+        demand_t[-1, 0] = demand
+
+        instance = torch.cat((instance, demand_t), dim=1)
+        stack.append(instance.numpy())
+
+    return np.stack(stack, axis=0)
+
+
+def generate_tap_dynamic_location_data(dataset_size, num_nodes, threshold=0.1):
+    stack = []
+
+    for i in range(dataset_size):
+        total_nodes = []
+        next = torch.FloatTensor(num_nodes, 2).uniform_(0, 1) # Create initial coordinates
+        for i in range(num_nodes):
+            total_nodes.append(next)
+            next = torch.clip(torch.add(next, torch.FloatTensor(num_nodes, 2).uniform_(-threshold, threshold))
+                              , 0, 1) # Change the previous coordinates between 0 and 1
+        data = torch.stack(total_nodes, dim=0)
+
+        demand = random.randint(2, 10)
+        demand_t = torch.zeros(num_nodes, 1)
+        demand_t[0, 0] = -demand
+        demand_t[-1, 0] = demand
+
+        tensor_data = torch.cat((data, demand_t[None, :].expand(num_nodes,-1,-1)), dim=-1)
+        stack.append(tensor_data.numpy())
+
+    return np.stack(stack, axis=0)
+
+
+
 
 def generate_dynamic_vrp_customer_data(dataset_size, num_nodes, threshold=0.1):
     stack = []
@@ -37,7 +106,6 @@ def generate_dynamic_vrp_data(dataset_size, vrp_size, threshold=0.1):
         50: 40.,
         100: 50.
     }
-
 
     return list(zip(
         np.random.uniform(size=(dataset_size, 2)).tolist(),  # Depot location
@@ -134,7 +202,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--filename", help="Filename of the dataset to create (ignores datadir)")
     parser.add_argument("--data_dir", default='data', help="Create datasets in data_dir/problem (default 'data')")
-    parser.add_argument("--name", type=str, required=True, help="Name to identify dataset")
+    parser.add_argument("--name", type=str, required=False, help="Name to identify dataset")
     parser.add_argument("--problem", type=str, default='all',
                         help="Problem, 'tsp', 'vrp', 'pctsp' or 'op_const', 'op_unif' or 'op_dist'"
                              " or 'all' to generate all")
@@ -149,6 +217,18 @@ if __name__ == "__main__":
 
     opts = parser.parse_args()
 
+    ### Remove
+
+    opts.problem = "dynamic_tap"
+    opts.seed = 4321
+    opts.graph_sizes = [10]
+    opts.dataset_size = 200
+    opts.f = True
+    threshold = 0.5
+    opts.name = "threshold_"+str(threshold)
+
+    ### Remove
+
     assert opts.filename is None or (len(opts.problems) == 1 and len(opts.graph_sizes) == 1), \
         "Can only specify filename when generating a single dataset"
 
@@ -158,8 +238,13 @@ if __name__ == "__main__":
         'vrp': [None],
         'dynamic_vrp': [None],
         'pctsp': [None],
-        'op': ['const', 'unif', 'dist']
+        'op': ['const', 'unif', 'dist'],
+        'tap': [None],
+        'dynamic_tap': [None]
     }
+
+
+
     if opts.problem == 'all':
         problems = distributions_per_problem
     else:
@@ -203,6 +288,11 @@ if __name__ == "__main__":
                     dataset = generate_pctsp_data(opts.dataset_size, graph_size)
                 elif problem == "op":
                     dataset = generate_op_data(opts.dataset_size, graph_size, prize_type=distribution)
+                elif problem == "tap":
+                    dataset = generate_tap_data(opts.dataset_size, graph_size)
+                elif problem == "dynamic_tap":
+                    dataset = generate_dynamic_tap_data(opts.dataset_size, graph_size, threshold=threshold)
+
                 else:
                     assert False, "Unknown problem: {}".format(problem)
 

@@ -285,8 +285,9 @@ class StAttentionModel(nn.Module):
             else:
                 if self.is_tap: # each instance in batch has different time step. So we need gather the current time step embeddings
                     _, _, size, emb_size = embeddings.size()
-                    fixed = self._precompute(torch.gather(embeddings, 1, state.get_time_steps()[:,:,None,None].
-                                                          expand(-1, -1, size, emb_size))[:, 0, :, :])
+                    #fixed = self._precompute(torch.gather(embeddings, 1, state.get_time_steps()[:,:,None,None].
+                    #                                      expand(-1, -1, size, emb_size))[:, 0, :, :])
+                    fixed = self._precompute(embeddings[:, 0, :, :])
                 else:
                     fixed = self._precompute(embeddings[:, i, :, :])
                     state = state.update_state(input=input, index=i)

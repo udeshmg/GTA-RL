@@ -160,9 +160,13 @@ class AttentionModel(nn.Module):
             data, adj = self._init_embed(input)
             embeddings, _ = self.embedder(data, adj)
 
-        _log_p, pi = self._inner(input, embeddings)
+        _log_p, pi, indexes = self._inner(input, embeddings)
 
-        cost, mask = self.problem.get_costs(original_input, pi)
+        if self.is_tap and len(original_input['data'].size()) == 4:
+            cost, mask = self.problem.get_costs(original_input, pi, indexes)
+        else:
+            cost, mask = self.problem.get_costs(original_input, pi)
+
         # Log likelyhood is calculated within the model since returning it per action does not work well with
         # DataParallel since sequences can be of different lengths
         ll = self._calc_log_likelihood(_log_p, pi, mask)
@@ -272,6 +276,7 @@ class AttentionModel(nn.Module):
 
         outputs = []
         sequences = []
+        indexes = []
 
         state = self.problem.make_state(input)
 
@@ -315,11 +320,13 @@ class AttentionModel(nn.Module):
             # Collect output of step
             outputs.append(log_p[:, 0, :])
             sequences.append(selected)
-
+            indexes.append(state.get_time_steps())
             i += 1
 
-        # Collected lists, return Tensor
-        return torch.stack(outputs, 1), torch.stack(sequences, 1)
+        if self.is_tap:  # TAP sequence is out of order, needs to be provide indexes to compute the cost
+            return torch.stack(outputs, 1), torch.stack(sequences, 1), torch.stack(indexes, 1).squeeze(-1)
+        else:
+            return torch.stack(outputs, 1), torch.stack(sequences, 1), None
 
     def sample_many(self, input, batch_rep=1, iter_rep=1):
         """
